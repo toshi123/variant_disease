@@ -260,7 +260,7 @@ def group_proteins_by_transmembrane_count(transmembrane_data):
         if not isinstance(regions, list):
             continue
         tm_count = len(regions)
-        if 1 <= tm_count <= 15:
+        if 0 <= tm_count <= 15:
             groups[tm_count].append(ac)
     
     return groups
@@ -354,7 +354,7 @@ def analyze_transmembrane_heatmaps(clinvar_json_filepath, transmembrane_json_fil
     # 各膜貫通回数についてヒートマップを生成
     print("\nヒートマップを生成しています...")
     for tm_count in sorted(tm_groups.keys()):
-        if tm_count < 1 or tm_count > 15:
+        if tm_count < 0 or tm_count > 15:
             continue
         
         allowed_acs = set(tm_groups[tm_count])
@@ -366,97 +366,148 @@ def analyze_transmembrane_heatmaps(clinvar_json_filepath, transmembrane_json_fil
         print(f"\n{tm_count}回膜貫通型の処理中...")
         print(f"  対象タンパク質数: {len(allowed_acs)}")
         
-        # 膜貫通領域内の変異をカウント
-        print(f"  膜貫通領域内の変異をカウント中...")
-        try:
-            tm_in_counts = count_mutations_from_data(
-                clinvar_data, 
-                transmembrane_data, 
-                allowed_acs=allowed_acs, 
-                in_transmembrane=True
-            )
-        except Exception as e:
-            print(f"  エラー: 膜貫通領域内の変異をカウント中にエラーが発生しました: {e}")
-            import traceback
-            traceback.print_exc()
-            continue
+        # 膜貫通回数0の場合は、膜貫通領域がないので領域外の変異のみを処理
+        if tm_count == 0:
+            # 膜貫通領域外の変異をカウント（全ての変異が領域外）
+            print(f"  膜貫通領域外の変異をカウント中...")
+            try:
+                tm_out_counts = count_mutations_from_data(
+                    clinvar_data, 
+                    transmembrane_data, 
+                    allowed_acs=allowed_acs, 
+                    in_transmembrane=False
+                )
+            except Exception as e:
+                print(f"  エラー: 膜貫通領域外の変異をカウント中にエラーが発生しました: {e}")
+                import traceback
+                traceback.print_exc()
+                continue
+            
+            # 膜貫通領域外のヒートマップを生成
+            title_out = f"Heatmap of Disease Ratio (膜貫通領域なし, Total Count >= 5)"
+            filename_out = f"Heatmap_{json_basename}_TM0_out_transmembrane.pdf"
+            if normalize:
+                title_out = f"Heatmap of Normalized Score (膜貫通領域なし, Total Count >= 5)"
+                filename_out = f"Heatmap_{json_basename}_TM0_out_transmembrane_normalized.pdf"
+                if max_abs_value is not None:
+                    filename_out = f"Heatmap_{json_basename}_TM0_out_transmembrane_normalized_{max_abs_value}.pdf"
+            else:
+                if max_abs_value is not None:
+                    filename_out = f"Heatmap_{json_basename}_TM0_out_transmembrane_{max_abs_value}.pdf"
+            
+            try:
+                plot_mutation_heatmap(
+                    tm_out_counts, 
+                    AMINO_ACIDS_ORDERED, 
+                    title_out, 
+                    filename_out, 
+                    normalize=normalize, 
+                    p_all=p_all, 
+                    max_abs_value=max_abs_value
+                )
+            except Exception as e:
+                print(f"  エラー: 膜貫通領域外のヒートマップ生成中にエラーが発生しました: {e}")
+                import traceback
+                traceback.print_exc()
+                continue
+            
+            # 統計情報を表示
+            total_out = sum(c["Disease"] + c["Polymorphism"] for c in tm_out_counts.values())
+            print(f"  変異数: {total_out}")
         
-        # 膜貫通領域外の変異をカウント
-        print(f"  膜貫通領域外の変異をカウント中...")
-        try:
-            tm_out_counts = count_mutations_from_data(
-                clinvar_data, 
-                transmembrane_data, 
-                allowed_acs=allowed_acs, 
-                in_transmembrane=False
-            )
-        except Exception as e:
-            print(f"  エラー: 膜貫通領域外の変異をカウント中にエラーが発生しました: {e}")
-            import traceback
-            traceback.print_exc()
-            continue
-        
-        # 膜貫通領域内のヒートマップを生成
-        title_in = f"Heatmap of Disease Ratio ({tm_count}回膜貫通型, 膜貫通領域内, Total Count >= 5)"
-        filename_in = f"Heatmap_{json_basename}_TM{tm_count}_in_transmembrane.pdf"
-        if normalize:
-            title_in = f"Heatmap of Normalized Score ({tm_count}回膜貫通型, 膜貫通領域内, Total Count >= 5)"
-            filename_in = f"Heatmap_{json_basename}_TM{tm_count}_in_transmembrane_normalized.pdf"
-            if max_abs_value is not None:
-                filename_in = f"Heatmap_{json_basename}_TM{tm_count}_in_transmembrane_normalized_{max_abs_value}.pdf"
         else:
-            if max_abs_value is not None:
-                filename_in = f"Heatmap_{json_basename}_TM{tm_count}_in_transmembrane_{max_abs_value}.pdf"
-        
-        try:
-            plot_mutation_heatmap(
-                tm_in_counts, 
-                AMINO_ACIDS_ORDERED, 
-                title_in, 
-                filename_in, 
-                normalize=normalize, 
-                p_all=p_all, 
-                max_abs_value=max_abs_value
-            )
-        except Exception as e:
-            print(f"  エラー: 膜貫通領域内のヒートマップ生成中にエラーが発生しました: {e}")
-            import traceback
-            traceback.print_exc()
-            continue
-        
-        # 膜貫通領域外のヒートマップを生成
-        title_out = f"Heatmap of Disease Ratio ({tm_count}回膜貫通型, 膜貫通領域外, Total Count >= 5)"
-        filename_out = f"Heatmap_{json_basename}_TM{tm_count}_out_transmembrane.pdf"
-        if normalize:
-            title_out = f"Heatmap of Normalized Score ({tm_count}回膜貫通型, 膜貫通領域外, Total Count >= 5)"
-            filename_out = f"Heatmap_{json_basename}_TM{tm_count}_out_transmembrane_normalized.pdf"
-            if max_abs_value is not None:
-                filename_out = f"Heatmap_{json_basename}_TM{tm_count}_out_transmembrane_normalized_{max_abs_value}.pdf"
-        else:
-            if max_abs_value is not None:
-                filename_out = f"Heatmap_{json_basename}_TM{tm_count}_out_transmembrane_{max_abs_value}.pdf"
-        
-        try:
-            plot_mutation_heatmap(
-                tm_out_counts, 
-                AMINO_ACIDS_ORDERED, 
-                title_out, 
-                filename_out, 
-                normalize=normalize, 
-                p_all=p_all, 
-                max_abs_value=max_abs_value
-            )
-        except Exception as e:
-            print(f"  エラー: 膜貫通領域外のヒートマップ生成中にエラーが発生しました: {e}")
-            import traceback
-            traceback.print_exc()
-            continue
-        
-        # 統計情報を表示
-        total_in = sum(c["Disease"] + c["Polymorphism"] for c in tm_in_counts.values())
-        total_out = sum(c["Disease"] + c["Polymorphism"] for c in tm_out_counts.values())
-        print(f"  膜貫通領域内の変異数: {total_in}")
-        print(f"  膜貫通領域外の変異数: {total_out}")
+            # 膜貫通回数1-15の場合は、領域内と領域外の両方を処理
+            # 膜貫通領域内の変異をカウント
+            print(f"  膜貫通領域内の変異をカウント中...")
+            try:
+                tm_in_counts = count_mutations_from_data(
+                    clinvar_data, 
+                    transmembrane_data, 
+                    allowed_acs=allowed_acs, 
+                    in_transmembrane=True
+                )
+            except Exception as e:
+                print(f"  エラー: 膜貫通領域内の変異をカウント中にエラーが発生しました: {e}")
+                import traceback
+                traceback.print_exc()
+                continue
+            
+            # 膜貫通領域外の変異をカウント
+            print(f"  膜貫通領域外の変異をカウント中...")
+            try:
+                tm_out_counts = count_mutations_from_data(
+                    clinvar_data, 
+                    transmembrane_data, 
+                    allowed_acs=allowed_acs, 
+                    in_transmembrane=False
+                )
+            except Exception as e:
+                print(f"  エラー: 膜貫通領域外の変異をカウント中にエラーが発生しました: {e}")
+                import traceback
+                traceback.print_exc()
+                continue
+            
+            # 膜貫通領域内のヒートマップを生成
+            title_in = f"Heatmap of Disease Ratio ({tm_count}回膜貫通型, 膜貫通領域内, Total Count >= 5)"
+            filename_in = f"Heatmap_{json_basename}_TM{tm_count}_in_transmembrane.pdf"
+            if normalize:
+                title_in = f"Heatmap of Normalized Score ({tm_count}回膜貫通型, 膜貫通領域内, Total Count >= 5)"
+                filename_in = f"Heatmap_{json_basename}_TM{tm_count}_in_transmembrane_normalized.pdf"
+                if max_abs_value is not None:
+                    filename_in = f"Heatmap_{json_basename}_TM{tm_count}_in_transmembrane_normalized_{max_abs_value}.pdf"
+            else:
+                if max_abs_value is not None:
+                    filename_in = f"Heatmap_{json_basename}_TM{tm_count}_in_transmembrane_{max_abs_value}.pdf"
+            
+            try:
+                plot_mutation_heatmap(
+                    tm_in_counts, 
+                    AMINO_ACIDS_ORDERED, 
+                    title_in, 
+                    filename_in, 
+                    normalize=normalize, 
+                    p_all=p_all, 
+                    max_abs_value=max_abs_value
+                )
+            except Exception as e:
+                print(f"  エラー: 膜貫通領域内のヒートマップ生成中にエラーが発生しました: {e}")
+                import traceback
+                traceback.print_exc()
+                continue
+            
+            # 膜貫通領域外のヒートマップを生成
+            title_out = f"Heatmap of Disease Ratio ({tm_count}回膜貫通型, 膜貫通領域外, Total Count >= 5)"
+            filename_out = f"Heatmap_{json_basename}_TM{tm_count}_out_transmembrane.pdf"
+            if normalize:
+                title_out = f"Heatmap of Normalized Score ({tm_count}回膜貫通型, 膜貫通領域外, Total Count >= 5)"
+                filename_out = f"Heatmap_{json_basename}_TM{tm_count}_out_transmembrane_normalized.pdf"
+                if max_abs_value is not None:
+                    filename_out = f"Heatmap_{json_basename}_TM{tm_count}_out_transmembrane_normalized_{max_abs_value}.pdf"
+            else:
+                if max_abs_value is not None:
+                    filename_out = f"Heatmap_{json_basename}_TM{tm_count}_out_transmembrane_{max_abs_value}.pdf"
+            
+            try:
+                plot_mutation_heatmap(
+                    tm_out_counts, 
+                    AMINO_ACIDS_ORDERED, 
+                    title_out, 
+                    filename_out, 
+                    normalize=normalize, 
+                    p_all=p_all, 
+                    max_abs_value=max_abs_value
+                )
+            except Exception as e:
+                print(f"  エラー: 膜貫通領域外のヒートマップ生成中にエラーが発生しました: {e}")
+                import traceback
+                traceback.print_exc()
+                continue
+            
+            # 統計情報を表示
+            total_in = sum(c["Disease"] + c["Polymorphism"] for c in tm_in_counts.values())
+            total_out = sum(c["Disease"] + c["Polymorphism"] for c in tm_out_counts.values())
+            print(f"  膜貫通領域内の変異数: {total_in}")
+            print(f"  膜貫通領域外の変異数: {total_out}")
     
     print("\n全てのヒートマップの生成が完了しました。")
 
