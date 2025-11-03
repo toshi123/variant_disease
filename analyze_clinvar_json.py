@@ -23,7 +23,31 @@ AMINO_ACID_MAP = {
 # ヒートマップの軸で使用するアミノ酸の順序
 AMINO_ACIDS_ORDERED = ['I', 'V', 'L', 'F', 'C', 'M', 'A', 'G', 'T', 'S', 'W', 'Y', 'P', 'H', 'E', 'Q', 'D', 'N', 'K', 'R']
 
-def plot_mutation_heatmap(mutation_counts, amino_acids_ordered, title, pdf_filename, normalize=False, p_all=None):
+def save_heatmap_as_tsv(heatmap_data, amino_acids_ordered, tsv_filename):
+    """
+    ヒートマップの数値データをTSV形式で保存する。
+    """
+    with open(tsv_filename, 'w', encoding='utf-8') as f:
+        # ヘッダー行を書き込み
+        f.write("Original_AA")
+        for aa in amino_acids_ordered:
+            f.write(f"\t{aa}")
+        f.write("\n")
+        
+        # データ行を書き込み
+        for i, orig_aa in enumerate(amino_acids_ordered):
+            f.write(orig_aa)
+            for j in range(len(amino_acids_ordered)):
+                value = heatmap_data[i, j]
+                if np.isnan(value):
+                    f.write("\tNA")
+                else:
+                    f.write(f"\t{value:.6f}")
+            f.write("\n")
+    
+    print(f"ヒートマップデータを '{tsv_filename}' に保存しました。")
+
+def plot_mutation_heatmap(mutation_counts, amino_acids_ordered, title, pdf_filename, normalize=False, p_all=None, max_abs_value=None):
     """
     アミノ酸変異の割合または規格化スコアをヒートマップで表示する。
     総計が5未満の変異は表示しない (NaNとして扱う)。
@@ -58,6 +82,10 @@ def plot_mutation_heatmap(mutation_counts, amino_acids_ordered, title, pdf_filen
                     if total_classified > 0:
                         pathogenic_ratio = pathogenic_count / total_classified
                         heatmap_data[idx_orig, idx_mut] = pathogenic_ratio
+    
+    # TSVファイルとして数値データを保存
+    tsv_filename = pdf_filename.replace('.pdf', '.tsv')
+    save_heatmap_as_tsv(heatmap_data, amino_acids_ordered, tsv_filename)
             
     colors = [(0, "green"), (0.5, "white"), (1, "magenta")]
     cmap_name = "custom_green_magenta"
@@ -68,9 +96,16 @@ def plot_mutation_heatmap(mutation_counts, amino_acids_ordered, title, pdf_filen
     
     # 規格化の有無でカラースケールとラベルを動的に変更
     if normalize:
-        max_abs_val = np.nanmax(np.abs(heatmap_data))
-        if max_abs_val == 0 or not np.isfinite(max_abs_val): max_abs_val = 1.0
-        cax = ax.imshow(heatmap_data, cmap=custom_cmap, vmin=-max_abs_val, vmax=max_abs_val, aspect='auto')
+        if max_abs_value is not None:
+            # ユーザー指定の最大値を使用
+            max_val = max_abs_value
+        else:
+            # データから自動計算（従来の動作）
+            max_val = np.nanmax(np.abs(heatmap_data))
+            if max_val == 0 or not np.isfinite(max_val): 
+                max_val = 1.0
+        
+        cax = ax.imshow(heatmap_data, cmap=custom_cmap, vmin=-max_val, vmax=max_val, aspect='auto')
         cbar = fig.colorbar(cax)
         cbar.set_label('Normalized Score: log(P_filtered / P_all)')
     else:
@@ -126,7 +161,7 @@ def count_mutations_from_data(data, allowed_acs=None):
             mutation_counts[mutation_key][clinical_sig] += 1
     return mutation_counts
 
-def analyze_clinvar_json(json_filepath, ac_list_filepath=None, normalize=False):
+def analyze_clinvar_json(json_filepath, ac_list_filepath=None, normalize=False, max_abs_value=None):
     """
     ClinVarのJSONデータを解析し、変異の統計情報を計算してヒートマップを描画する。
     """
@@ -209,19 +244,26 @@ def analyze_clinvar_json(json_filepath, ac_list_filepath=None, normalize=False):
 
     if normalize and is_filtered_by_ac:
         title = f"Heatmap of Normalized Score {title_suffix}"
-        pdf_filename = f"clinvar_heatmap_{json_basename}_{filename_suffix}_normalized.pdf"
+        base_filename = f"Heatmap_{json_basename}_{filename_suffix}_normalized"
     else:
         title = f"Heatmap of Disease Ratio {title_suffix}"
-        pdf_filename = f"clinvar_heatmap_{json_basename}_{filename_suffix}.pdf"
+        base_filename = f"Heatmap_{json_basename}_{filename_suffix}"
+    
+    # -mオプションで最大値が指定された場合、ファイル名に追加
+    if max_abs_value is not None:
+        pdf_filename = f"{base_filename}_{max_abs_value}.pdf"
+    else:
+        pdf_filename = f"{base_filename}.pdf"
 
-    plot_mutation_heatmap(mutation_counts_for_report, AMINO_ACIDS_ORDERED, title, pdf_filename, normalize=(normalize and is_filtered_by_ac), p_all=p_all)
+    plot_mutation_heatmap(mutation_counts_for_report, AMINO_ACIDS_ORDERED, title, pdf_filename, normalize=(normalize and is_filtered_by_ac), p_all=p_all, max_abs_value=max_abs_value)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate a heatmap of amino acid mutations from a ClinVar JSON file.")
     parser.add_argument("json_file", help="Path to the input ClinVar JSON file.")
     parser.add_argument("--ac_list_file", "-a", default=None, help="Optional: Path to a newline-delimited accession list file to filter the analysis.")
     parser.add_argument("--normalize", "-n", action='store_true', help="Use normalized score for the heatmap when filtering with an AC list.")
+    parser.add_argument("--max_abs_value", "-m", type=float, default=None, help="Maximum absolute value for the color scale in normalized mode (e.g., 0.8 for range -0.8 to 0.8).")
     
     args = parser.parse_args()
     
-    analyze_clinvar_json(json_filepath=args.json_file, ac_list_filepath=args.ac_list_file, normalize=args.normalize) 
+    analyze_clinvar_json(json_filepath=args.json_file, ac_list_filepath=args.ac_list_file, normalize=args.normalize, max_abs_value=args.max_abs_value) 
