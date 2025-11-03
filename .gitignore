@@ -1,3 +1,4 @@
 .gitattributes
 .gitignore
 uniprot_sprot_human.dat
+Clinvar_1ac_human_classfied_annotated.json
